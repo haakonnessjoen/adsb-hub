@@ -1,3 +1,22 @@
+/*
+    adsb-hub - A ADS-B Hub for communities
+    Copyright (C) 2016 Håkon Nessjøen <haakon.nessjoen@gmail.com>
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+*/
 var net = require('net');
 
 client = net.connect(30005, '10.20.30.119', function () {
@@ -95,6 +114,31 @@ function cprNL(lat) {
 	}
 }
 
+var planes = {};
+
+// the polynominal generattor code for CRC
+var GENERATOR = "1111111111111010000001001";
+
+function checkCRC(buf) {
+	var bits = hex2bin(buf.slice(0, buf.length-24).toString('hex'));
+	console.log("CRC IN: ", bits.substr(buf.length-24));
+	var comp = bits.substr(bits.length-24);
+	bits = bits.split('');
+	var len = bits.length;
+
+	for (var i = 0; i < len; ++i) {
+		if (bits[i] == '1') {
+			for (var j = 0; j < GENERATOR.length; ++j) {
+				console.log("bits["  + i + ", " + j + "] = " + bits[i+j]);
+				bits[i+j] = parseInt(bits[i+j]) ^ parseInt(GENERATOR[j]);
+			}
+		}
+	}
+	var result = bits.join('');
+	console.log("CRC:", result.substr(result.length-24,24) == comp ? 'OK' : 'FAIL', result.substr(result.length-25,24) + ' == ' + comp);
+	return result.substr(result.length-25,24) == comp;
+}
+
 function parseADSB(buf, sig) {
 	var data = parseBits(buf, [
 		{ name: 'DF',    type: 'num', size: 5 },
@@ -114,8 +158,14 @@ function parseADSB(buf, sig) {
 				{ name: 'DATA',  type: 'bin', size: 48 }
 			]);
 			if (identification.NUL != 0) return;
-			
-			console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + adsbASCII(identification.DATA));
+	
+			if (planes[data.ICAO] === undefined) {
+				planes[data.ICAO] = {};
+			}
+			planes[data.ICAO].sig = sig;
+			planes[data.ICAO].name = adsbASCII(identification.DATA);
+			console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + planes[data.ICAO].name);
+			checkCRC(buf);
 		}
 		if (data.TC >= 9 && data.TC <= 18) {
 			var obj = parseBits(buf, [
@@ -174,17 +224,18 @@ function parseADSB(buf, sig) {
 					var m = Math.floor(positions[obj.ICAO]['lon0'] * (cprNL(LatO)-1) - positions[obj.ICAO]['lon1'] * cprNL(LatO) + 0.5);
 					Lon = dLon * ((m % ni) + positions[obj.ICAO]['lon1']);
 				}
+
 				if (Lon >= 180)
 					Lon = Lon - 360;
-				delete positions[obj.ICAO].lat0;
-				delete positions[obj.ICAO].lat1;
-				delete positions[obj.ICAO].lon1;
-				delete positions[obj.ICAO].lon1;
-				positions[obj.ICAO].lat = Lat;
-				positions[obj.ICAO].lon = Lon;
-				console.log(obj.ICAO + ': ' + Lat + ', ' + Lon);
+
+				positions[obj.ICAO] = {};
+
+				if (planes[data.ICAO] === undefined) {
+					planes[data.ICAO] = {};
+				}
+				planes[data.ICAO].sig = sig;
+				planes[data.ICAO].position = { lat: Lat, lon: Lon };
 			}
-//			console.log(obj);
 		}
 	}
 }
@@ -210,6 +261,8 @@ function parseBuffer() {
 			//console.log("MODE S long: sig " + databuf.readUInt8(7));
 			parseADSB(databuf.slice(9,23), databuf.readUInt8(7));
 
+//			console.log("\033[H\033[2J");
+	//		console.log(planes);
 			databuf = databuf.slice(datalen);
 		} else {
 			console.log("Unknown mode: " + databuf.readUInt8(1));
