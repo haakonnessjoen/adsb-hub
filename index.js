@@ -18,31 +18,32 @@
 
 */
 var checker = require('modes-crc');
+var debug = require('debug')('adsb-hub.main');
 var net = require('net');
+var transport = require('./transport');
 
 client = net.connect(30005, '10.20.30.119', function () {
 	console.log("Connected");
+	client.transport = new transport();
 });
 var databuf = new Buffer(0);
 
 client.on('data', function (data) {
 	databuf = Buffer.concat([databuf, data]);
 
-	parseBuffer();
-});
+	var data;
+	do {
+		data = client.transport.getADSB(databuf);
+		if (data) {
+			parseADSB(data);
+			//console.log('*' + data.buffer.toString('hex') + ';');
 
-function buflen(offset, want) {
-	if (databuf.length < want) {
-		return -1;
-	}
-	for (var i = offset; i < want; ++i) {
-		if (databuf.readUInt8(i) == 0x1a && databuf.readUInt8(i+1) == 0x1a) {
-			want++;
-			i++;
+			databuf = data.remain;
 		}
-	}
-	return want;
-}
+	} while (data !== undefined);
+	console.log("\033[H\033[2J");
+	console.log(planes);
+});
 
 function hex2bin(hex) {
 	var result = '';
@@ -124,7 +125,10 @@ function cprMOD(a,b) {
 
 var planes = {};
 
-function parseADSB(buf, sig) {
+function parseADSB(packet) {
+	var buf = packet.buffer;
+	var sig = packet.sig;
+
 	var data = parseBits(buf, [
 		{ name: 'DF',    type: 'num', size: 5 },
 		{ name: 'CA',    type: 'num', size: 3 },
@@ -134,6 +138,15 @@ function parseADSB(buf, sig) {
 
 	if (data.DF == 17) {
 		if (checker.checker.crc(buf) != checker.checker.checksum(buf)) {
+			// Gjør om til Uint8Array, siden buffer.slice ikke gir deg kopi, og modes-crc bruker .slice for å kopiere
+			var abuf = Array.prototype.slice.call(buf);
+			var result = checker.fixer.fix(abuf);
+			if (result.errorBit == -1) {
+				return;
+			}
+			buf = Buffer.from(abuf);
+			console.log(" === PACKET FIXED! ===");
+			parseADSB(buf, sig);
 			return;
 		}
 		if (data.TC > 0 && data.TC <= 4) {
@@ -151,8 +164,9 @@ function parseADSB(buf, sig) {
 				planes[data.ICAO] = {};
 			}
 			planes[data.ICAO].sig = sig;
+			//planes[data.ICAO].mlat = packet.mlat;
 			planes[data.ICAO].name = adsbASCII(identification.DATA);
-			console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + planes[data.ICAO].name);
+			//console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + planes[data.ICAO].name);
 		}
 		if (data.TC >= 9 && data.TC <= 18) {
 			var obj = parseBits(buf, [
@@ -219,47 +233,9 @@ function parseADSB(buf, sig) {
 					planes[data.ICAO] = {};
 				}
 				planes[data.ICAO].sig = sig;
+				planes[data.ICAO].mlat = packet.mlat;
 				planes[data.ICAO].position = { lat: Lat, lon: Lon };
-				console.log("Pos: ", planes[data.ICAO].position);
 			}
 		}
-	}
-}
-
-function parseBuffer() {
-	if (databuf.length < 2) return;
-
-	if (databuf.readUInt8(0) == 0x1a && databuf.readUInt8(1) != 0x1a) {
-		if (databuf.readUInt8(1) == '1'.charCodeAt(0)) {
-			var datalen = buflen(2, 11);
-			if (datalen == -1) return;
-			console.log("MODE A-C: sig " + databuf.readUInt8(7));
-			databuf = databuf.slice(datalen);
-		} else
-		if (databuf.readUInt8(1) == '2'.charCodeAt(0)) {
-			var datalen = buflen(2, 16);
-			if (datalen == -1) return;
-		//	console.log("MODE S short: sig " + databuf.readUInt8(7));
-
-			databuf = databuf.slice(datalen);
-		} else
-		if (databuf.readUInt8(1) == '3'.charCodeAt(0)) {
-			var datalen = buflen(2, 23);
-			if (datalen == -1) return;
-			//console.log("MODE S long: sig " + databuf.readUInt8(7));
-			parseADSB(databuf.slice(9,23), databuf.readUInt8(7));
-
-//			console.log("\033[H\033[2J");
-	//		console.log(planes);
-			databuf = databuf.slice(datalen);
-		} else {
-			console.log("Unknown mode: " + databuf.readUInt8(1));
-		}
-	} else {
-		databuf = databuf.slice(1);
-		console.log("Input misaligned, trying to align..");
-	}
-	if (databuf.length) {
-		parseBuffer();
 	}
 }

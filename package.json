@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/haakonnessjoen/adsb-hub#readme",
   "dependencies": {
+    "debug": "^2.2.0",
     "modes-crc": "^1.2.0"
   }
 }
