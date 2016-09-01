@@ -21,17 +21,13 @@ var checker = require('modes-crc');
 var debug = require('debug')('adsb-hub.main');
 var net = require('net');
 var transport = require('./transport');
+var bits = require('./bits');
 
 client = net.connect(30005, '10.20.30.119', function () {
-	console.log("Connected");
+	debug("Connected");
 	client.transport = new transport();
 });
 var databuf = new Buffer(0);
-
-var beasta = new transport();
-beasta.setFormat('BEASTA');
-var avra = new transport();
-avra.setFormat('AVRA');
 
 client.on('data', function (data) {
 	databuf = Buffer.concat([databuf, data]);
@@ -40,26 +36,14 @@ client.on('data', function (data) {
 	do {
 		data = client.transport.getADSB(databuf);
 		if (data) {
-			process.stdout.write(beasta.writeADSB(data));
-			process.stdout.write(avra.writeADSB(data));
 			parseADSB(data);
 
 			databuf = data.remain;
 		}
 	} while (data !== undefined);
-//	console.log("\033[H\033[2J");
-//	console.log(planes);
+	process.stdout.write("\033[H\033[2J");
+	process.stdout.write(JSON.stringify(planes));
 });
-
-function hex2bin(hex) {
-	var result = '';
-	for (var i = 0; i < hex.length; i += 2) {
-		var bin = parseInt(hex.substr(i,2), 16).toString(2);
-		bin = ("00000000"+bin).slice(-8)
-		result += bin;
-	}
-	return result;
-}
 
 function adsbASCII(bits) {
 	var data = '';
@@ -68,43 +52,6 @@ function adsbASCII(bits) {
 		data += charset[parseInt(bits.substr(i,6),2)];
 	}
 	return data.replace(/[#_]/g,'');
-}
-
-/*
- * Tar imot buffer, gjør om til bits, og lager et objekt med keys etter ønsket antall bits.
- *
- *	var data = parseBits(buf, [
- *		{ name: 'DF',    type: 'num', size: 5 },
- *		{ name: 'CA',    type: 'num', size: 3 },
- *		{ name: 'ICAO',  type: 'hex', size: 24 },
- *		{ name: 'TC',    type: 'bin', size: 5 }
- *	]);
- */
-function parseBits(buffer, description) {
-  bits = hex2bin(buffer.toString('hex'));
-	pos = 0;
-	var output = {};
-	for (var i = 0; i < description.length; ++i) {
-		if (pos > bits.length) {
-			console.log("Error, trying to parse past end of bitstream, pos=" + pos + ", len="+bits.length);
-			return output;
-		}
-		var desc = description[i];
-		if (desc.type == 'num') {
-			output[desc.name] = parseInt(bits.substr(pos, desc.size), 2);
-		} else
-		if (desc.type == 'hex') {
-			output[desc.name] = '';
-			for (var x = Math.ceil(desc.size/8)-1; x >= 0; x--) {
-				output[desc.name] = parseInt(bits.substr(pos+(x*8),8),2).toString(16) + output[desc.name];
-			}
-		} else
-	  if (desc.type == 'bin') {
-			output[desc.name] = bits.substr(pos, desc.size);
-		}
-		pos += desc.size;
-	}
-	return output;
 }
 
 var positions = {};
@@ -135,7 +82,7 @@ function parseADSB(packet) {
 	var buf = packet.buffer;
 	var sig = packet.sig;
 
-	var data = parseBits(buf, [
+	var data = bits.parseBits(buf, [
 		{ name: 'DF',    type: 'num', size: 5 },
 		{ name: 'CA',    type: 'num', size: 3 },
 		{ name: 'ICAO',  type: 'hex', size: 24 },
@@ -151,12 +98,12 @@ function parseADSB(packet) {
 				return;
 			}
 			buf = Buffer.from(abuf);
-			console.log(" === PACKET FIXED! ===");
+			debug(" === PACKET FIXED! ===");
 			parseADSB(buf, sig);
 			return;
 		}
 		if (data.TC > 0 && data.TC <= 4) {
-			var identification = parseBits(buf, [
+			var identification = bits.parseBits(buf, [
 				{ name: 'DF',    type: 'num', size: 5 },
 				{ name: 'CA',    type: 'num', size: 3 },
 				{ name: 'ICAO',  type: 'hex', size: 24 },
@@ -175,7 +122,7 @@ function parseADSB(packet) {
 			//console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + planes[data.ICAO].name);
 		}
 		if (data.TC >= 9 && data.TC <= 18) {
-			var obj = parseBits(buf, [
+			var obj = bits.parseBits(buf, [
 				{ name: 'DF',    type: 'num', size: 5 },
 				{ name: 'CA',    type: 'num', size: 3 },
 				{ name: 'ICAO',  type: 'hex', size: 24 },
