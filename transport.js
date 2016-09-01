@@ -112,11 +112,11 @@ transport.prototype.writeBEAST = function (packet) {
 	var estimatedLength = 2 + 6 + 1 + packet.buffer.length;
 	var buffer = new Buffer(estimatedLength);
 
-	buffer.writeUint8(0x1a, 0);
-	buffer.writeUint8(packet.type.toString().charCodeAt(0), 1);
-	var mlat = Buffer.from(bits.bin2hex(packet.mlat), 'hex');
+	buffer.writeUInt8(0x1a, 0);
+	buffer.writeUInt8(packet.type.toString().charCodeAt(0), 1);
+	var mlat = new Buffer(('000000000000' + bits.bin2hex(packet.mlat)).slice(-12), 'hex');
 	mlat.copy(buffer, 2, 0, 6);
-	buffer.writeUint8(parseInt(packet.sig), 2 + 6);
+	buffer.writeUInt8(parseInt(packet.sig), 2 + 6);
 	packet.buffer.copy(buffer, 2 + 7);
 
 	/* Escape 0x1a */
