@@ -31,12 +31,21 @@ transport.prototype.probeInput = function (buf) {
 transport.prototype.getADSB = function (buffer) {
 	if (this.format == 'UNKNOWN') {
 		if (!this.probeInput(buffer)) {
-			throw new Error('Error probing input format. Please select manually with setFormat()');
+			throw new Error('Error probing input format. Please set manually with setFormat()');
 			return;
 		}
 	}
 
 	return this['parse' + this.format].call(this, buffer);
+}
+
+transport.prototype.writeADSB = function (packet) {
+	if (this.format == 'UNKNOWN') {
+		throw new Error('No output format defined. Please set manually with setFormat()');
+		return;
+	}
+
+	return this['write' + this.format].call(this, packet);
 }
 
 // Read and calculate BEAST packet length
@@ -81,8 +90,52 @@ transport.prototype.setFormat = function (format) {
 	return true;
 };
 
-transport.prototype.writeBEAST = function (packet, buffer) {
+transport.prototype.writeBEASTA = function (packet) {
+	if (packet === undefined) return new Buffer(0);
+	var data = '@';
+	data += ('000000000000' + bits.bin2hex(packet.mlat)).slice(-12);
+	data += packet.buffer.toString('hex');
+	data += ";\r\n";
+	return new Buffer(data, 'utf8');
+};
 
+transport.prototype.writeAVRA = function (packet) {
+	if (packet === undefined) return new Buffer(0);
+	var data = '*';
+	data += packet.buffer.toString('hex');
+	data += ";\r\n";
+	return new Buffer(data, 'utf8');
+};
+
+transport.prototype.writeBEAST = function (packet) {
+	if (packet === undefined) return new Buffer(0);
+	var estimatedLength = 2 + 6 + 1 + packet.buffer.length;
+	var buffer = new Buffer(estimatedLength);
+
+	buffer.writeUint8(0x1a, 0);
+	buffer.writeUint8(packet.type.toString().charCodeAt(0), 1);
+	var mlat = Buffer.from(bits.bin2hex(packet.mlat), 'hex');
+	mlat.copy(buffer, 2, 0, 6);
+	buffer.writeUint8(parseInt(packet.sig), 2 + 6);
+	packet.buffer.copy(buffer, 2 + 7);
+
+	/* Escape 0x1a */
+	var resultBuffer = new Buffer(estimatedLength*2);
+	var x = 0;
+	for (var i = 0; i < buffer.length; ++i) {
+		resultBuffer[x++] = buffer[i];
+
+		if (i != 0 && buffer[i] == 0x1a) {
+			resultBuffer[x++] = 0x1a;
+		}
+	}
+	return new Buffer(resultBuffer.slice(0, x));
+};
+
+transport.prototype.parseBEASTA = function (buffer) {
+};
+
+transport.prototype.parseAVRA = function (buffer) {
 };
 
 transport.prototype.parseBEAST = function (buffer) {
@@ -94,15 +147,14 @@ transport.prototype.parseBEAST = function (buffer) {
 		var extra = parseMLAT(buffer);
 		result.mlat = extra.mlat;
 		result.sig = extra.sig;
-
-		var type = String.fromCharCode(buffer.readUInt8(1));
+		result.type = parseInt(String.fromCharCode(extra.type));
 		var read;
 
-		if (type == '1') {         // MODE A-C
+		if (result.type == 1) {         // MODE A-C
 			read = beastRead(buffer, 11);
-		} else if (type == '2') { // MODE S Short
+		} else if (result.type == 2) { // MODE S Short
 			read = beastRead(buffer, 16);
-		} else if (type == '3') { // Mode S Long
+		} else if (result.type == 3) { // Mode S Long
 			read = beastRead(buffer, 23);
 		} else {
 			debug('Unknown mode: ' + type + ' (' + databuf.readUInt8(1) + ')');

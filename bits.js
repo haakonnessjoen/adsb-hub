@@ -11,6 +11,14 @@ exports.hex2bin = function(hex) {
 	return result;
 };
 
+exports.bin2hex = function (bits) {
+	output = '';
+	for (var x = Math.ceil(bits.length / 8) - 1; x >= 0; --x) {
+		output = parseInt(bits.substr(x * 8, 8), 2).toString(16) + output;
+	}
+	return output;
+}
+
 /*
  * Tar imot buffer, gjør om til bits, og lager et objekt med keys etter ønsket antall bits.
  *

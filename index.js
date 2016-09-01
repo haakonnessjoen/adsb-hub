@@ -28,6 +28,11 @@ client = net.connect(30005, '10.20.30.119', function () {
 });
 var databuf = new Buffer(0);
 
+var beasta = new transport();
+beasta.setFormat('BEASTA');
+var avra = new transport();
+avra.setFormat('AVRA');
+
 client.on('data', function (data) {
 	databuf = Buffer.concat([databuf, data]);
 
@@ -35,14 +40,15 @@ client.on('data', function (data) {
 	do {
 		data = client.transport.getADSB(databuf);
 		if (data) {
+			process.stdout.write(beasta.writeADSB(data));
+			process.stdout.write(avra.writeADSB(data));
 			parseADSB(data);
-			//console.log('*' + data.buffer.toString('hex') + ';');
 
 			databuf = data.remain;
 		}
 	} while (data !== undefined);
-	console.log("\033[H\033[2J");
-	console.log(planes);
+//	console.log("\033[H\033[2J");
+//	console.log(planes);
 });
 
 function hex2bin(hex) {
