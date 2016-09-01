@@ -17,6 +17,7 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 */
+var checker = require('modes-crc');
 var net = require('net');
 
 client = net.connect(30005, '10.20.30.119', function () {
@@ -114,30 +115,14 @@ function cprNL(lat) {
 	}
 }
 
-var planes = {};
-
-// the polynominal generattor code for CRC
-var GENERATOR = "1111111111111010000001001";
-
-function checkCRC(buf) {
-	var bits = hex2bin(buf.slice(0, buf.length-24).toString('hex'));
-	console.log("CRC IN: ", bits.substr(buf.length-24));
-	var comp = bits.substr(bits.length-24);
-	bits = bits.split('');
-	var len = bits.length;
-
-	for (var i = 0; i < len; ++i) {
-		if (bits[i] == '1') {
-			for (var j = 0; j < GENERATOR.length; ++j) {
-				console.log("bits["  + i + ", " + j + "] = " + bits[i+j]);
-				bits[i+j] = parseInt(bits[i+j]) ^ parseInt(GENERATOR[j]);
-			}
-		}
-	}
-	var result = bits.join('');
-	console.log("CRC:", result.substr(result.length-24,24) == comp ? 'OK' : 'FAIL', result.substr(result.length-25,24) + ' == ' + comp);
-	return result.substr(result.length-25,24) == comp;
+function cprMOD(a,b) {
+	var r = a % b;
+	if (r < 0)
+		r += b;
+	return r;
 }
+
+var planes = {};
 
 function parseADSB(buf, sig) {
 	var data = parseBits(buf, [
@@ -148,6 +133,9 @@ function parseADSB(buf, sig) {
 	]);
 
 	if (data.DF == 17) {
+		if (checker.checker.crc(buf) != checker.checker.checksum(buf)) {
+			return;
+		}
 		if (data.TC > 0 && data.TC <= 4) {
 			var identification = parseBits(buf, [
 				{ name: 'DF',    type: 'num', size: 5 },
@@ -165,7 +153,6 @@ function parseADSB(buf, sig) {
 			planes[data.ICAO].sig = sig;
 			planes[data.ICAO].name = adsbASCII(identification.DATA);
 			console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + planes[data.ICAO].name);
-			checkCRC(buf);
 		}
 		if (data.TC >= 9 && data.TC <= 18) {
 			var obj = parseBits(buf, [
@@ -194,13 +181,12 @@ function parseADSB(buf, sig) {
 				first = 'O';
 			}
 			if (first !== undefined) {
-				console.log("Found two");
 				var NZ = 15;
 				var latIndex = Math.floor(59 * positions[obj.ICAO]['lat0'] - 60 * positions[obj.ICAO]['lat1'] + 0.5);
 				var dLatE = 360/(4*NZ);
 				var dLatO = 360/(4*NZ-1);
-				var LatE = dLatE * ((latIndex % (4*NZ)) + positions[obj.ICAO]['lat0']);
-				var LatO = dLatO * ((latIndex % (4*NZ-1)) + positions[obj.ICAO]['lat1']);
+				var LatE = dLatE * (cprMOD(latIndex, (4*NZ)) + positions[obj.ICAO]['lat0']);
+				var LatO = dLatO * (cprMOD(latIndex, (4*NZ-1)) + positions[obj.ICAO]['lat1']);
 
 				if (LatE >= 270)
 					LatE = LatE - 360;
@@ -209,7 +195,6 @@ function parseADSB(buf, sig) {
 					LatO = LatO - 360;
 
 				var Lat = LatE >= LatO ? LatE : LatO;
-				console.log("LAT CHECK: ", cprNL(LatE), " == ", cprNL(LatO));
 				if (cprNL(LatE) != cprNL(LatO)) return;
 
 				var Lon;
@@ -217,12 +202,12 @@ function parseADSB(buf, sig) {
 					var ni = Math.max(cprNL(LatE),1);
 					var dLon = 360/ni;
 					var m = Math.floor(positions[obj.ICAO]['lon0'] * (cprNL(LatE)-1) - positions[obj.ICAO]['lon1'] * cprNL(LatE) + 0.5);
-					Lon = dLon * ((m % ni) + positions[obj.ICAO]['lon0']);
+					Lon = dLon * (cprMOD(m, ni) + positions[obj.ICAO]['lon0']);
 				} else {
 					var ni = Math.max(cprNL(LatO)-1, 1);
 					var dLon = 360/ni;
 					var m = Math.floor(positions[obj.ICAO]['lon0'] * (cprNL(LatO)-1) - positions[obj.ICAO]['lon1'] * cprNL(LatO) + 0.5);
-					Lon = dLon * ((m % ni) + positions[obj.ICAO]['lon1']);
+					Lon = dLon * (cprMOD(m, ni) + positions[obj.ICAO]['lon1']);
 				}
 
 				if (Lon >= 180)
@@ -235,12 +220,15 @@ function parseADSB(buf, sig) {
 				}
 				planes[data.ICAO].sig = sig;
 				planes[data.ICAO].position = { lat: Lat, lon: Lon };
+				console.log("Pos: ", planes[data.ICAO].position);
 			}
 		}
 	}
 }
 
 function parseBuffer() {
+	if (databuf.length < 2) return;
+
 	if (databuf.readUInt8(0) == 0x1a && databuf.readUInt8(1) != 0x1a) {
 		if (databuf.readUInt8(1) == '1'.charCodeAt(0)) {
 			var datalen = buflen(2, 11);
