@@ -34,11 +34,7 @@ function hex2bin(hex) {
 	return result;
 }
 
-function adsbASCII(buf) {
-	//console.log("WHERE IS 20: " + buf.toString('hex'));
-	if (buf.readUInt8(0) != 0x20) return '';
-	var bits = hex2bin(buf.slice(1).toString('hex'));
-//	console.log("bits: ", bits);
+function adsbASCII(bits) {
 	var data = '';
 	var charset = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ#####_###############0123456789######';
 	for (var i = 0; i < bits.length; i += 6) {
@@ -47,6 +43,16 @@ function adsbASCII(buf) {
 	return data.replace(/[#_]/g,'');
 }
 
+/*
+ * Tar imot buffer, gjør om til bits, og lager et objekt med keys etter ønsket antall bits.
+ *
+ *	var data = parseBits(buf, [
+ *		{ name: 'DF',    type: 'num', size: 5 },
+ *		{ name: 'CA',    type: 'num', size: 3 },
+ *		{ name: 'ICAO',  type: 'hex', size: 24 },
+ *		{ name: 'TC',    type: 'bin', size: 5 }
+ *	]);
+ */
 function parseBits(buffer, description) {
   bits = hex2bin(buffer.toString('hex'));
 	pos = 0;
@@ -89,20 +95,29 @@ function cprNL(lat) {
 	}
 }
 
-
 function parseADSB(buf, sig) {
-	if ((buf.readUInt8(0) & 0xF8) == 0x88) { // DF 17
-		var TC = ((buf.readUInt8(3) & 0x7C) >> 2);
-//		console.log("DF 17, CA: " + (buf.readUInt8(0) & 0x07) + " TC: " + ((buf.readUInt8(3) & 0x7C) >> 2));
+	var data = parseBits(buf, [
+		{ name: 'DF',    type: 'num', size: 5 },
+		{ name: 'CA',    type: 'num', size: 3 },
+		{ name: 'ICAO',  type: 'hex', size: 24 },
+		{ name: 'TC',    type: 'num', size: 5 }
+	]);
 
-		if (TC > 0 && TC <= 4 && buf.readUInt8(4) == 0x20) {
-/*			console.log("|    | ICAO24 |      DATA      |  CRC   |");
-			console.log("|----|--------|----------------|--------|");
-			console.log("| " + buf.slice(0,1).toString('hex') + ' | ' + buf.slice(1,4).toString('hex') + ' | ' + buf.slice(4,11).toString('hex') + ' | ' + buf.slice(11,14).toString('hex') + ' |');
-			console.log("");*/
-			console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", buf.slice(1,4).toString('hex'), " Name: " + adsbASCII(buf.slice(4,11)));
+	if (data.DF == 17) {
+		if (data.TC > 0 && data.TC <= 4) {
+			var identification = parseBits(buf, [
+				{ name: 'DF',    type: 'num', size: 5 },
+				{ name: 'CA',    type: 'num', size: 3 },
+				{ name: 'ICAO',  type: 'hex', size: 24 },
+				{ name: 'TC',    type: 'num', size: 5 },
+				{ name: 'NUL',   type: 'num', size: 3 },
+				{ name: 'DATA',  type: 'bin', size: 48 }
+			]);
+			if (identification.NUL != 0) return;
+			
+			console.log("SIG: 0x" + sig.toString(16) + " ICAO24: ", identification.ICAO, " Name: " + adsbASCII(identification.DATA));
 		}
-		if (TC >= 9 && TC <= 18) {
+		if (data.TC >= 9 && data.TC <= 18) {
 			var obj = parseBits(buf, [
 				{ name: 'DF',    type: 'num', size: 5 },
 				{ name: 'CA',    type: 'num', size: 3 },
