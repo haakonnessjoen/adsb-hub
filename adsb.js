@@ -161,8 +161,10 @@ parser.prototype.parseADSB = function (packet) {
 
 				delete self.positions[obj.ICAO];
 
+				var Alt = parseInt(obj.ALT.substr(0, 7) + obj.ALT.substr(8),2) * (obj.ALT.substr(7,1) == '0' ? 100 : 25) - 1000;
+
 				data.type = 'position';
-				data.position = { lat: Lat, lon: Lon };
+				data.position = { lat: Lat, lon: Lon, alt: Alt };
 				return data;
 			}
 		}
