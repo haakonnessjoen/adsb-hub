@@ -24,11 +24,11 @@ var debug = require('debug')('adsb-hub.adsb');
 
 function adsbASCII(bits) {
 	var data = '';
-	var charset = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ#####_###############0123456789######';
+	var charset = '?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????';
 	for (var i = 0; i < bits.length; i += 6) {
 		data += charset[parseInt(bits.substr(i,6),2)];
 	}
-	return data.replace(/[#_]/g,'');
+	return data.replace(/\?/g,'').trim();
 }
 
 function cprNL(lat) {
@@ -61,10 +61,10 @@ parser.prototype.parseADSB = function (packet) {
 	var sig = packet.sig;
 
 	var data = bits.parseBits(buf, [
-		{ name: 'DF',    type: 'num', size: 5 },
-		{ name: 'CA',    type: 'num', size: 3 },
+		{ name: 'DF',    type: 'num', size: 5  },
+		{ name: 'CA',    type: 'num', size: 3  },
 		{ name: 'ICAO',  type: 'hex', size: 24 },
-		{ name: 'TC',    type: 'num', size: 5 }
+		{ name: 'TC',    type: 'num', size: 5  }
 	]);
 
 	if (data.DF == 17) {
@@ -84,19 +84,51 @@ parser.prototype.parseADSB = function (packet) {
 		// DC 17, TC 1 - 4 = Aircraft Identification
 		if (data.TC > 0 && data.TC <= 4) {
 			var identification = bits.parseBits(buf, [
-				{ name: 'DF',    type: 'num', size: 5 },
-				{ name: 'CA',    type: 'num', size: 3 },
+				{ name: 'DF',    type: 'num', size: 5  },
+				{ name: 'CA',    type: 'num', size: 3  },
 				{ name: 'ICAO',  type: 'hex', size: 24 },
-				{ name: 'TC',    type: 'num', size: 5 },
-				{ name: 'NUL',   type: 'num', size: 3 },
+				{ name: 'TC',    type: 'num', size: 5  },
+				{ name: 'NUL',   type: 'num', size: 3  },
 				{ name: 'DATA',  type: 'bin', size: 48 }
 			]);
 			if (identification.NUL != 0) return;
 	
-			data.type = 'identification';
-			data.name = adsbASCII(identification.DATA);
+			identification.type = 'identification';
+			identification.name = adsbASCII(identification.DATA);
 
-			return data;
+			return identification;
+		}
+
+		// Airborne Velocity
+		if (data.TC == 19 && data.CA >= 1 && data.CA <= 4) {
+			var obj = bits.parseBits(buf, [
+				{ name: 'DF',    type: 'num', size: 5  },
+				{ name: 'CA',    type: 'num', size: 3  },
+				{ name: 'ICAO',  type: 'hex', size: 24 },
+				{ name: 'TC',    type: 'num', size: 5  },
+				{ name: 'ST',    type: 'num', size: 3  },
+				{ name: 'IC',    type: 'num', size: 1  },
+				{ name: 'RESVA', type: 'bin', size: 1  },
+				{ name: 'NAC',   type: 'num', size: 3  },
+				{ name: 'sEW',   type: 'num', size: 1  },
+				{ name: 'vEW',   type: 'num', size: 10 },
+				{ name: 'sNS',   type: 'num', size: 1  },
+				{ name: 'vNS',   type: 'num', size: 10 },
+				{ name: 'VrSrc', type: 'num', size: 1  },
+				{ name: 'sVr',   type: 'num', size: 1  },
+				{ name: 'Vr',    type: 'num', size: 9  },
+				{ name: 'RESVB', type: 'num', size: 2  },
+				{ name: 'S-Dif', type: 'num', size: 1  },
+				{ name: 'Dif',   type: 'num', size: 7  }
+			]);
+
+			if (obj.CA == 1 || obj.CA == 2) { /* Todo */
+				var VR = (obj.sVr == '0' ? 1 : -1) * parseInt(obj.Vr,2);
+
+				obj.type = 'rate';
+				obj.rate = { vertical: VR };
+				return obj;
+			}
 		}
 
 		// DC 17, TC 9 - 18 = Airborne Positions
@@ -163,9 +195,9 @@ parser.prototype.parseADSB = function (packet) {
 
 				var Alt = parseInt(obj.ALT.substr(0, 7) + obj.ALT.substr(8),2) * (obj.ALT.substr(7,1) == '0' ? 100 : 25) - 1000;
 
-				data.type = 'position';
-				data.position = { lat: Lat, lon: Lon, alt: Alt };
-				return data;
+				obj.type = 'position';
+				obj.position = { lat: Lat, lon: Lon, alt: Alt };
+				return obj;
 			}
 		}
 	}

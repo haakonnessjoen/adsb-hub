@@ -45,11 +45,20 @@ client.on('data', function (data) {
 
 			if (info && info.type == 'identification') {
 				if (planes[info.ICAO] === undefined) planes[info.ICAO] = {};
+
 				planes[info.ICAO].name = info.name;
+
 			} else if (info && info.type == 'position') {
 				if (planes[info.ICAO] === undefined) planes[info.ICAO] = {};
+
 				planes[info.ICAO].position = info.position;
+
+			} else if (info && info.type == 'rate') {
+				if (planes[info.ICAO] === undefined) planes[info.ICAO] = {};
+
+				planes[info.ICAO].rate = info.rate;
 			}
+
 
 			client.databuf = data.remain;
 		}
