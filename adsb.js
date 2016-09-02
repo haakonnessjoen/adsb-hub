@@ -1,5 +1,7 @@
-module.exports = exports = parseADSB;
+module.exports = exports = parser;
+var checker = require('modes-crc');
 var bits = require('./bits');
+var debug = require('debug')('adsb-hub.adsb');
 
 function adsbASCII(bits) {
 	var data = '';
@@ -30,7 +32,12 @@ function cprMOD(a,b) {
 	return r;
 }
 
-function parseADSB(packet) {
+function parser() {
+	this.positions = {};
+}
+
+parser.prototype.parseADSB = function (packet) {
+	var self = this;
 	var buf = packet.buffer;
 	var sig = packet.sig;
 
@@ -88,25 +95,25 @@ function parseADSB(packet) {
 				{ name: 'LAT',   type: 'num', size: 17 },
 				{ name: 'LON',   type: 'num', size: 17 }
 			]);
-			if (positions[obj.ICAO] === undefined) positions[obj.ICAO] = {};
-			positions[obj.ICAO]['lat' + obj.F] = obj.LAT / 131072;
-			positions[obj.ICAO]['lon' + obj.F] = obj.LON / 131072;
+			if (self.positions[obj.ICAO] === undefined) self.positions[obj.ICAO] = {};
+			self.positions[obj.ICAO]['lat' + obj.F] = obj.LAT / 131072;
+			self.positions[obj.ICAO]['lon' + obj.F] = obj.LON / 131072;
 
 			var first = undefined;
 
-			if (obj.F == 1 && positions[obj.ICAO]['lat0']) {
+			if (obj.F == 1 && self.positions[obj.ICAO]['lat0']) {
 				first = 'E';
 			}
-			if (obj.F == 0 && positions[obj.ICAO]['lat1']) {
+			if (obj.F == 0 && self.positions[obj.ICAO]['lat1']) {
 				first = 'O';
 			}
 			if (first !== undefined) {
 				var NZ = 15;
-				var latIndex = Math.floor(59 * positions[obj.ICAO]['lat0'] - 60 * positions[obj.ICAO]['lat1'] + 0.5);
+				var latIndex = Math.floor(59 * self.positions[obj.ICAO]['lat0'] - 60 * self.positions[obj.ICAO]['lat1'] + 0.5);
 				var dLatE = 360/(4*NZ);
 				var dLatO = 360/(4*NZ-1);
-				var LatE = dLatE * (cprMOD(latIndex, (4*NZ)) + positions[obj.ICAO]['lat0']);
-				var LatO = dLatO * (cprMOD(latIndex, (4*NZ-1)) + positions[obj.ICAO]['lat1']);
+				var LatE = dLatE * (cprMOD(latIndex, (4*NZ)) + self.positions[obj.ICAO]['lat0']);
+				var LatO = dLatO * (cprMOD(latIndex, (4*NZ-1)) + self.positions[obj.ICAO]['lat1']);
 
 				if (LatE >= 270)
 					LatE = LatE - 360;
@@ -121,17 +128,19 @@ function parseADSB(packet) {
 				if (first == 'O') {
 					var ni = Math.max(cprNL(LatE),1);
 					var dLon = 360/ni;
-					var m = Math.floor(positions[obj.ICAO]['lon0'] * (cprNL(LatE)-1) - positions[obj.ICAO]['lon1'] * cprNL(LatE) + 0.5);
-					Lon = dLon * (cprMOD(m, ni) + positions[obj.ICAO]['lon0']);
+					var m = Math.floor(self.positions[obj.ICAO]['lon0'] * (cprNL(LatE)-1) - self.positions[obj.ICAO]['lon1'] * cprNL(LatE) + 0.5);
+					Lon = dLon * (cprMOD(m, ni) + self.positions[obj.ICAO]['lon0']);
 				} else {
 					var ni = Math.max(cprNL(LatO)-1, 1);
 					var dLon = 360/ni;
-					var m = Math.floor(positions[obj.ICAO]['lon0'] * (cprNL(LatO)-1) - positions[obj.ICAO]['lon1'] * cprNL(LatO) + 0.5);
-					Lon = dLon * (cprMOD(m, ni) + positions[obj.ICAO]['lon1']);
+					var m = Math.floor(self.positions[obj.ICAO]['lon0'] * (cprNL(LatO)-1) - self.positions[obj.ICAO]['lon1'] * cprNL(LatO) + 0.5);
+					Lon = dLon * (cprMOD(m, ni) + self.positions[obj.ICAO]['lon1']);
 				}
 
 				if (Lon >= 180)
 					Lon = Lon - 360;
+
+				delete self.positions[obj.ICAO];
 
 				data.type = 'position';
 				data.position = { lat: Lat, lon: Lon };

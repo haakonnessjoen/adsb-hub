@@ -17,12 +17,10 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 */
-var checker = require('modes-crc');
 var debug = require('debug')('adsb-hub.main');
 var net = require('net');
 var transport = require('./transport');
-var bits = require('./bits');
-var parseADSB = require('./adsb');
+var ADSBParser = require('./adsb');
 
 var positions = {};
 var planes = {};
@@ -31,6 +29,7 @@ client = net.connect(30005, '10.20.30.119', function () {
 	debug("Connected");
 
 	client.transport = new transport();
+	client.parser    = new ADSBParser();
 	client.databuf = new Buffer(0);
 });
 
@@ -42,7 +41,7 @@ client.on('data', function (data) {
 	do {
 		data = client.transport.getADSB(client.databuf);
 		if (data) {
-			var info = parseADSB(data);
+			var info = client.parser.parseADSB(data);
 
 			if (info && info.type == 'identification') {
 				if (planes[info.ICAO] === undefined) planes[info.ICAO] = {};
@@ -56,5 +55,5 @@ client.on('data', function (data) {
 		}
 	} while (data !== undefined);
 	process.stdout.write("\033[H\033[2J");
-	process.stdout.write(JSON.stringify(planes));
+	console.log(planes);
 });
