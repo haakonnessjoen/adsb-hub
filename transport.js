@@ -31,11 +31,11 @@ transport.prototype.probeInput = function (buf) {
 	var firstC = String.fromCharCode(firstB);
 
 	if (firstC == '*') {
-		this.format = 'AVR-A';
+		this.format = 'AVRA';
 		return true;
 	} else
 	if (firstC == '@') {
-		this.format = 'BEAST-A';
+		this.format = 'BEASTA';
 		return true;
 	} else
 	if (firstB == 0x1a) {
@@ -152,9 +152,89 @@ transport.prototype.writeBEAST = function (packet) {
 };
 
 transport.prototype.parseBEASTA = function (buffer) {
+	if (buffer.length < 20) return undefined;
+	var result = {
+		sig: 0
+	};
+
+	if (String.fromCharCode(buffer[0]) == '@') {
+		result.mlat = bits.hex2bin(buffer.slice(1,13).toString());
+		var len = buffer.indexOf(";") + 3;
+		if (len == 20) {
+			result.type = 1;
+		} else if (len == 30) {
+			result.type = 2;
+		} else if (len == 44) {
+			result.type = 3;
+		} else if (len == 2) { // no ; was found
+			// Need more data
+			return undefined;
+		} else {
+			debug("Invalid packet len: " + len);
+			result.buffer = new Buffer(0);
+			result.remain = buffer.slice(len);
+			return result;
+		}
+		result.buffer = new Buffer(buffer.slice(13, len - 3).toString(), 'hex');
+		result.remain = buffer.slice(len-1);
+		return result;
+	} else {
+		// Out of sync?
+		var idx = buffer.indexOf('@', 1);
+		if (idx > 0) {
+			// Sync up for next parse
+			result.buffer = new Buffer(0);
+			result.remain = buffer.slice(idx);
+			debug('Trying to sync up to next @');
+			return result;
+		} else {
+			// need more data
+			return undefined;
+		}
+	}
 };
 
 transport.prototype.parseAVRA = function (buffer) {
+	if (buffer.length < 20) return undefined;
+	var result = {
+		sig: 0,
+		mlat: '0'.repeat(48)
+	};
+
+	if (String.fromCharCode(buffer[0]) == '*') {
+		var len = buffer.indexOf(";") + 3;
+		if (len == 8) {
+			result.type = 1;
+		} else if (len == 18) {
+			result.type = 2;
+		} else if (len == 32) {
+			result.type = 3;
+		} else if (len == 2) { // no ; was found
+			// Need more data
+			return undefined;
+		} else {
+			debug("Invalid packet len: " + len);
+			result.buffer = new Buffer(0);
+			result.remain = buffer.slice(len);
+			return result;
+		}
+		result.buffer = new Buffer(buffer.slice(1, len - 3).toString(), 'hex');
+		result.remain = buffer.slice(len-1);
+		return result;
+	} else {
+		// Out of sync?
+		var idx = buffer.indexOf('*', 1);
+		if (idx > 0) {
+			// Sync up for next parse
+			result.buffer = new Buffer(0);
+			result.remain = buffer.slice(idx);
+			debug('Trying to sync up to next *');
+			return result;
+		} else {
+			// need more data
+			return undefined;
+		}
+	}
 };
 
 transport.prototype.parseBEAST = function (buffer) {
@@ -177,10 +257,14 @@ transport.prototype.parseBEAST = function (buffer) {
 			read = beastRead(buffer, 23);
 		} else {
 			debug('Unknown mode: ' + type + ' (' + databuf.readUInt8(1) + ')');
+			// Make parser find next "sync point"
+			result.buffer = new Buffer(0);
+			result.remain = buffer.slice(1);
 			return undefined;
 		}
 
 		if (read.readbytes == 0) {
+			// need more data
 			return undefined;
 		}
 
@@ -188,5 +272,18 @@ transport.prototype.parseBEAST = function (buffer) {
 		result.remain = buffer.slice(read.readbytes);
 
 		return result;
+	} else {
+		// Out of sync?
+		var idx = buffer.indexOf(0x1a, 2, 'binary');
+		if (idx > 0) {
+			// Sync up for next parse
+			result.buffer = new Buffer(0);
+			result.remain = buffer.slice(idx);
+			debug('Trying to sync up to next 0x1a');
+			return result;
+		} else {
+			// need more data
+			return undefined;
+		}
 	}
 }
