@@ -20,11 +20,14 @@
 module.exports = exports = transport;
 var debug = require('debug')('adsb-hub.transport');
 var bits = require('./bits');
+var EventEmitter = require('events').EventEmitter;
+var util = require('util');
 
 function transport() {
 	this.format = 'UNKNOWN';
 
 }
+util.inherits(transport, EventEmitter);
 
 transport.prototype.probeInput = function (buf) {
 	var firstB = buf.readUInt8(0);
@@ -50,9 +53,11 @@ transport.prototype.probeInput = function (buf) {
 transport.prototype.getADSB = function (buffer) {
 	if (this.format == 'UNKNOWN') {
 		if (!this.probeInput(buffer)) {
-			throw new Error('Error probing input format. Please set manually with setFormat()');
+			this.emit('log', 'Error probing input format.');
+			this.emit('error', 'format');
 			return;
 		}
+		this.emit('log', 'Recognized input as: ' + this.format);
 	}
 
 	return this['parse' + this.format].call(this, buffer);
@@ -171,6 +176,7 @@ transport.prototype.parseBEASTA = function (buffer) {
 			return undefined;
 		} else {
 			debug("Invalid packet len: " + len);
+			this.emit('log', 'Receiving invalid data. Unknown packet length: ' + len);
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(len);
 			return result;
@@ -185,6 +191,7 @@ transport.prototype.parseBEASTA = function (buffer) {
 			// Sync up for next parse
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(idx);
+			this.emit('log', 'Data stream out of sync, trying to resync.');
 			debug('Trying to sync up to next @');
 			return result;
 		} else {
@@ -214,6 +221,7 @@ transport.prototype.parseAVRA = function (buffer) {
 			return undefined;
 		} else {
 			debug("Invalid packet len: " + len);
+			this.emit('log', 'Receiving invalid data. Unknown packet length: ' + len);
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(len);
 			return result;
@@ -229,6 +237,7 @@ transport.prototype.parseAVRA = function (buffer) {
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(idx);
 			debug('Trying to sync up to next *');
+			this.emit('log', 'Data stream out of sync, trying to resync.');
 			return result;
 		} else {
 			// need more data
@@ -257,6 +266,7 @@ transport.prototype.parseBEAST = function (buffer) {
 			read = beastRead(buffer, 23);
 		} else {
 			debug('Unknown mode: ' + type + ' (' + databuf.readUInt8(1) + ')');
+			this.emit('log', 'Receiving invalid data. Unknown mode: ' + databuf.readUInt8(1));
 			// Make parser find next "sync point"
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(1);
@@ -280,6 +290,7 @@ transport.prototype.parseBEAST = function (buffer) {
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(idx);
 			debug('Trying to sync up to next 0x1a');
+			this.emit('log', 'Data stream out of sync, trying to resync.');
 			return result;
 		} else {
 			// need more data
