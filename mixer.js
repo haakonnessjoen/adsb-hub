@@ -17,10 +17,25 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 */
-var debug = require('debug')('adsb-hub.hub');
+var debug   = require('debug')('adsb-hub.hub');
+var express = require('express');
+var http    = require('http');
+var app     = express();
 var ADSBParser = require('./adsb');
-var input = require('./input');
-var output = require('./output');
+var input   = require('./input');
+var output  = require('./output');
+var Getopt  = require('node-getopt');
+var web     = require('./web')(app);
+
+var opts = new Getopt([
+		['p', 'port=ARG', 'port number for webserver'],
+		['h', 'help', 'display this help']
+]).bindHelp().parseSystem();
+
+var port = opts.options['port'] || 8080;
+console.log("Webserver listening on port " + port);
+var server  = app.listen(port);
+var io   = require('socket.io').listen(server);
 
 var inputs = [
 	{ type: 'server', port: 30005, id: 'haakon2' },
@@ -33,6 +48,8 @@ var outputs = [
 	{ type: 'server', port: 40006, format: 'AVRA',   id: 'AVR ASCII'    },
 	{ type: 'server', port: 40007, format: 'BEAST',  id: 'Beast binary' }
 ];
+
+app.use(express.static(__dirname + '/public'));
 
 for (var i = 0; i < inputs.length; ++i) {
 	(function (i) {
@@ -113,6 +130,7 @@ setInterval(function () {
 			}
 		}
 	}
-	process.stdout.write("\033[H\033[2J");
-	console.log(planes);
+	io.emit('planes', planes);
+	//process.stdout.write("\033[H\033[2J");
+	//console.log(planes);
 }, 1000);
