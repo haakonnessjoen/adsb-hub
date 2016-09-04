@@ -7,12 +7,16 @@ $(function () {
 			var $tr;
 
 			if ($('#plane_' + icao).length == 0) {
-				$tr = $('<tr><td class=icao></td><td class=regnr></td><td class=spot></td><td class=act></td><td></td></tr>');
+				$tr = $('<tr><td class=icao></td><td class=regnr></td><td class=spot></td><td class=act></td><td class=msgs></td></tr>');
 				$tr.attr('id', 'plane_' + icao);
+				$tr.attr('icao', icao);
 				$tr.find('.icao').text(icao);
 				$('#current_planes tbody').append($tr);
 			} else {
 				$tr = $('#plane_' + icao);
+			}
+			if (plane.msgs) {
+				$tr.find('.msgs').text(plane.msgs);
 			}
 			if (plane.name) {
 				$tr.find('.regnr').text(plane.name);
@@ -24,5 +28,12 @@ $(function () {
 				$tr.find('.act').text(Math.floor((new Date().getTime() - plane.ts) / 1000));
 			}
 		}
+		$('#current_planes > tbody > tr').each(function (i) {
+			if ($(this).attr('icao')) {
+				if (planes[$(this).attr('icao')] === undefined) {
+					$(this).remove();
+				}
+			}
+		});
 	});
 });

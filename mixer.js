@@ -38,15 +38,14 @@ var server  = app.listen(port);
 var io   = require('socket.io').listen(server);
 
 var inputs = [
-	{ type: 'server', port: 30005, id: 'haakon2' },
-	{ type: 'client', port: 30005, host: '192.168.10.109',  id: 'haakon' },
+	{ type: 'server', port: 3005, id: 'haakon' },
+	{ type: 'server', port: 3006, id: 'jorn' },
+	{ type: 'server', port: 3007, id: 'bugge' },
 	{ type: 'client', port: 40005, host: '195.159.183.162', id: 'thomas'  }
 ];
 
 var outputs = [
-	{ type: 'server', port: 40005, format: 'BEASTA', id: 'Beast ASCII'  },
-	{ type: 'server', port: 40006, format: 'AVRA',   id: 'AVR ASCII'    },
-	{ type: 'server', port: 40007, format: 'BEAST',  id: 'Beast binary' }
+	{ type: 'server', port: 30005, format: 'BEAST', id: 'Beast raw til VirtualRadar'  }
 ];
 
 app.use(express.static(__dirname + '/public'));
@@ -65,9 +64,12 @@ for (var i = 0; i < inputs.length; ++i) {
 			if (packet.buffer.length) {
 				var data = inputs[i].parser.parseADSB(packet);
 				if (data) {
+					if (inputs[i].planes[data.ICAO] !== undefined) {
+						inputs[i].planes[data.ICAO].msgs++;
+					}
 					if (data.type == 'identification') {
 						if (inputs[i].planes[data.ICAO] === undefined) {
-							inputs[i].planes[data.ICAO] = { ICAO: data.ICAO };
+							inputs[i].planes[data.ICAO] = { ICAO: data.ICAO, msgs: 0 };
 						}
 						inputs[i].planes[data.ICAO].name = data.name;
 						inputs[i].planes[data.ICAO].ts = new Date().getTime();
@@ -75,7 +77,7 @@ for (var i = 0; i < inputs.length; ++i) {
 					}
 					if (data.type == 'position') {
 						if (inputs[i].planes[data.ICAO] === undefined) {
-							inputs[i].planes[data.ICAO] = { ICAO: data.ICAO };
+							inputs[i].planes[data.ICAO] = { ICAO: data.ICAO, msgs: 0 };
 						}
 						inputs[i].planes[data.ICAO].position = data.position;
 						inputs[i].planes[data.ICAO].ts = new Date().getTime();
@@ -110,9 +112,12 @@ setInterval(function () {
 
 			if (planes[plane.ICAO] === undefined) {
 				planes[plane.ICAO] = {
-					users: []
+					users: [],
+					msgs: 0
 				};
 			}
+
+			planes[plane.ICAO].msgs += plane.msgs;
 
 			planes[plane.ICAO].users.push(inputs[i].id);
 
