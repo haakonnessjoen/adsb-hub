@@ -27,34 +27,36 @@ function output(settings) {
 	self.settings = settings;
 
 	self.id = self.id || '';
+	settings.host = settings.host || '0.0.0.0';
 	self.connections = [];
 
-	if (settings.type == 'server') {
-		self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - Listening on ' + settings.host + ':' + settings.port);
-		self.handle = new tcp.Server(settings.host || '0.0.0.0', settings.port, function (socket) {
+	setImmediate(function () {
+		if (settings.type == 'server') {
+			self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - Listening on ' + settings.host + ':' + settings.port);
+			self.handle = new tcp.Server(settings.host || '0.0.0.0', settings.port, function (socket) {
 
-			self.handleConnection(socket, self.handle);
+				self.handleConnection(socket, self.handle);
 
-		});
-		self.handle.on('log', function (message) {
-			self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - ' + message);
-			console.log('Output' + self.settings.type + ' ' + self.settings.id + ' - ' + message);
-		});
+			});
+			self.handle.on('log', function (message) {
+				self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - ' + message);
+			});
 
-	} else if (settings.type == 'client') {
-		self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - Connecting to ' + settings.host + ':' + settings.port);
-		self.handle = new tcp.Client(settings.host, settings.port, function (socket) {
+		} else if (settings.type == 'client') {
+			self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - Connecting to ' + settings.host + ':' + settings.port);
+			self.handle = new tcp.Client(settings.host, settings.port, function (socket) {
 
-			self.handleConnection(socket, self.handle);
+				self.handleConnection(socket, self.handle);
 
-		});
-		self.handle.on('log', function (message) {
-			self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - ' + message);
-		});
+			});
+			self.handle.on('log', function (message) {
+				self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - ' + message);
+			});
 
-	} else {
-		throw new Error('Unknown type: "' + settings.type + '", should be "client" or "server"');
-	}
+		} else {
+			throw new Error('Unknown type: "' + settings.type + '", should be "client" or "server"');
+		}
+	});
 }
 util.inherits(output, EventEmitter);
 
@@ -90,9 +92,6 @@ output.prototype.handleConnection = function (socket, handle) {
 		}
 	});
 
-	socket.transport.on('log', function (message) {
-		self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - ' + message);
-	});
 	socket.transport.on('error', function (type) {
 		if (type == 'format') {
 			socket.end();
