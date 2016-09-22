@@ -78,7 +78,7 @@ function beastRead(buf, want) {
 		return { readbytes: 0, buffer: new Buffer(0) };
 	}
 
-	var result = new Buffer(want*2);
+	var result = new Buffer(Math.ceil(want*1.3));
 	var ii = 0;
 
 	for (var i = 0; i < want; ++i) {
@@ -91,6 +91,9 @@ function beastRead(buf, want) {
 		}
 	}
 
+	if (ii != want) {
+		console.log("beastRead::::: Wanted originally: " + ii + ", read: " + want);
+	}
 	return { readbytes: want, buffer: result.slice(0, ii) };
 }
 
@@ -265,6 +268,7 @@ transport.prototype.parseBEAST = function (buffer) {
 		} else if (result.type == 3) { // Mode S Long
 			read = beastRead(buffer, 23);
 		} else {
+			console.log("Need more data, UKNOWN MODE " + type);
 			debug('Unknown mode: ' + type + ' (' + databuf.readUInt8(1) + ')');
 			this.emit('log', 'Receiving invalid data. Unknown mode: ' + databuf.readUInt8(1));
 			// Make parser find next "sync point"
@@ -274,11 +278,12 @@ transport.prototype.parseBEAST = function (buffer) {
 		}
 
 		if (read.readbytes == 0) {
+			console.log("Need more data, beastread = 0");
 			// need more data
 			return undefined;
 		}
 
-		result.buffer = new Buffer(read.buffer.slice(9));
+		result.buffer = read.buffer.slice(9); //new Buffer(read.buffer.slice(9));
 		result.remain = buffer.slice(read.readbytes);
 
 		return result;
@@ -290,9 +295,11 @@ transport.prototype.parseBEAST = function (buffer) {
 			result.buffer = new Buffer(0);
 			result.remain = buffer.slice(idx);
 			debug('Trying to sync up to next 0x1a');
+			console.log("Out of sync, trying to skip to next 0x1a");
 			this.emit('log', 'Data stream out of sync, trying to resync.');
 			return result;
 		} else {
+			console.log("Did not find any 0x1a, need more data");
 			// need more data
 			return undefined;
 		}

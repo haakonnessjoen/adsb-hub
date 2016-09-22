@@ -72,19 +72,28 @@ input.prototype.handleConnection = function (socket, handle) {
 
 	socket.databuf = new Buffer(0);
 	socket.on('data', function (data) {
+		console.log("Got " + data.length + " bytes of extra data");
 		socket.databuf = Buffer.concat([socket.databuf, data]);
 		
 		var packet;
 		do {
+			console.log("Parse packet of size:", socket.databuf.length);
 			packet = socket.transport.getADSB(socket.databuf);
 
 			if (packet && packet.buffer.length) {
+					console.log("Successfully parsed " + packet.buffer.length);
 					self.emit('packet', packet);
 			}
 			if (packet) {
+				console.log("Bytes was remaining: ", packet.remain.length);
 				socket.databuf = packet.remain;
 			}
 		} while (packet !== undefined && packet.buffer.length > 0);
+		if (socket.databuf.length == 0) {
+			console.log("No more data yet");
+		} else {
+			console.log("Waiting for more data");
+		}
 	});
 };
 
