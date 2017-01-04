@@ -24,6 +24,7 @@ var util = require('util');
 
 function input(settings) {
 	var self = this;
+	self.buffers = [];
 	self.settings = settings;
 
 	setImmediate(function () {
@@ -64,6 +65,12 @@ input.prototype.handleConnection = function (socket, handle) {
 		socket.transport.setFormat(self.settings.format);
 	}
 
+	socket.on('end', function () {
+		if (socket._timer) {
+			clearInterval(socket._timer);
+		}
+	});
+
 	socket.transport.on('error', function (type) {
 		if (type == 'format') {
 			socket.end();
@@ -72,29 +79,51 @@ input.prototype.handleConnection = function (socket, handle) {
 
 	socket.databuf = new Buffer(0);
 	socket.on('data', function (data) {
-		console.log("Got " + data.length + " bytes of extra data");
-		socket.databuf = Buffer.concat([socket.databuf, data]);
-		
-		var packet;
-		do {
-			console.log("Parse packet of size:", socket.databuf.length);
-			packet = socket.transport.getADSB(socket.databuf);
-
-			if (packet && packet.buffer.length) {
-					console.log("Successfully parsed " + packet.buffer.length);
-					self.emit('packet', packet);
-			}
-			if (packet) {
-				console.log("Bytes was remaining: ", packet.remain.length);
-				socket.databuf = packet.remain;
-			}
-		} while (packet !== undefined && packet.buffer.length > 0);
-		if (socket.databuf.length == 0) {
-			console.log("No more data yet");
-		} else {
-			console.log("Waiting for more data");
-		}
+		//console.log("Got " + data.length + " bytes of data");
+		self.buffers.push(data);
 	});
+	socket._timer = setInterval(function () {
+		var len = self.buffers.length;
+		for (var i = 0; i < Math.min(len, 10); ++i) {
+			self.handlePackets(socket);
+		}
+	}, 10);
+};
+
+input.prototype.handlePackets = function (socket) {
+	var self = this;
+	var buffer = this.buffers.shift();
+	var packet;
+
+	if (buffer === undefined) {
+		return;
+	}
+	var startlen = buffer.length;
+	//console.log("Parse packet of size:", buffer.length);
+	packet = socket.transport.getADSB(buffer);
+
+	if (packet && packet.buffer.length) {
+		//console.log("Successfully parsed " + packet.buffer.length);
+		self.emit('packet', packet);
+	}
+	if (packet) {
+		//console.log("Bytes was remaining: ", packet.remain.length);
+		buffer = packet.remain;
+		if (buffer.length > 0) {
+			self.buffers.unshift(buffer);
+		}
+	}
+	if (buffer.length == 0) {
+		//console.log("No more data yet");
+	} else if (startlen == buffer.length) {
+		//console.log("Waiting for more data");
+		if (self.buffers.length > 0) {
+			var newbuf = Buffer.concat([buffer, self.buffers.shift()]);
+			console.log("CONCATING " + buffer.length + " + " + (newbuf.length - buffer.length));
+			self.buffers.unshift(newbuf);
+		}
+	}
+	//console.log("BUFFER LEN: ", self.buffers.length);
 };
 
 module.exports = exports = input;

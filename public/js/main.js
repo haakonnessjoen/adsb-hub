@@ -20,6 +20,9 @@ $(function () {
 			}
 			if (plane.name) {
 				$tr.find('.regnr').text(plane.name);
+				if (plane.position) {
+					$tr.find('.regnr').html('<a href="https://www.google.no/maps/search/' + plane.position.lat + ',' + plane.position.lon + '?hl=no">' + plane.name + '</a>');
+				}
 			}
 			if (plane.users) {
 				$tr.find('.spot').text(plane.users.join(', '));

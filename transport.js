@@ -91,9 +91,6 @@ function beastRead(buf, want) {
 		}
 	}
 
-	if (ii != want) {
-		console.log("beastRead::::: Wanted originally: " + ii + ", read: " + want);
-	}
 	return { readbytes: want, buffer: result.slice(0, ii) };
 }
 
