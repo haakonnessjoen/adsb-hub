@@ -18,124 +18,86 @@
 
 */
 var debug   = require('debug')('adsb-hub.hub');
-var express = require('express');
-var http    = require('http');
-var app     = express();
 var ADSBParser = require('./adsb');
 var input   = require('./input');
 var output  = require('./output');
 var Getopt  = require('node-getopt');
-var web     = require('./web')(app);
+var cluster = require('cluster');
 
-var opts = new Getopt([
-		['p', 'port=ARG', 'port number for webserver'],
-		['h', 'help', 'display this help']
-]).bindHelp().parseSystem();
-
-var port = opts.options['port'] || 8080;
-console.log("Webserver listening on port " + port);
-var server  = app.listen(port);
-var io   = require('socket.io').listen(server);
 
 var inputs = [
 	{ type: 'server', port: 3005, id: 'haakon' },
 	{ type: 'server', port: 3006, id: 'jorn' },
 	{ type: 'server', port: 3007, id: 'bugge' },
-	{ type: 'client', port: 40005, host: '195.159.183.162', id: 'thomas'  }
+	{ type: 'server', port: 3007, id: 'jacob' },
+	{ type: 'client', port: 40005, host: '193.69.248.67', id: 'thomas'  }
 ];
 
 var outputs = [
-	{ type: 'server', port: 30005, format: 'BEAST', id: 'Beast raw til VirtualRadar'  }
+	{ type: 'server', port: 30005, format: 'BEAST', id: 'Beast for VirtualRadar'  }
 ];
 
-app.use(express.static(__dirname + '/public'));
 
-for (var i = 0; i < inputs.length; ++i) {
-	(function (i) {
+if (cluster.isMaster) {
+
+	for (var i = 0; i < inputs.length; ++i) {
+		(function (i) {
+			cluster.fork({ type: 'input', input_id: i });
+		})(i);
+	}
+
+	for (var i = 0; i < outputs.length; ++i) {
+		(function (i) {
+			cluster.fork({ type: 'output', output_id: i });
+		})(i);
+	}
+
+	cluster.on('exit', function (worker) {
+
+	    // Replace the dead worker, TODO
+	    console.log('Worker %d died :(', worker.id);
+	});
+
+} else {
+	var redis = require("redis");
+	var redisclient = redis.createClient();
+
+	var type = process.env.type;
+
+	if (type == 'input') {
+		var i = process.env.input_id;
+		console.log('Worker %d running for input %d (%s)', cluster.worker.id, i, inputs[i].id);
+
 		inputs[i].planes = {};
-		inputs[i].parser  = new ADSBParser();
 		inputs[i].handler = new input(inputs[i]);
 		inputs[i].handler.on('log', console.log);
 		inputs[i].handler.on('packet', function (packet) {
-			for (var x = 0; x < outputs.length; ++x) {
-				outputs[x].handler.write(packet);
-			}
-
 			if (packet.buffer.length) {
-				var data = inputs[i].parser.parseADSB(packet);
-				if (data) {
-					if (inputs[i].planes[data.ICAO] !== undefined) {
-						inputs[i].planes[data.ICAO].msgs++;
-					}
-					if (data.type == 'identification') {
-						if (inputs[i].planes[data.ICAO] === undefined) {
-							inputs[i].planes[data.ICAO] = { ICAO: data.ICAO, msgs: 0 };
-						}
-						inputs[i].planes[data.ICAO].name = data.name;
-						inputs[i].planes[data.ICAO].ts = new Date().getTime();
-						inputs[i].planes[data.ICAO].sig = packet.sig;
-					}
-					if (data.type == 'position') {
-						if (inputs[i].planes[data.ICAO] === undefined) {
-							inputs[i].planes[data.ICAO] = { ICAO: data.ICAO, msgs: 0 };
-						}
-						inputs[i].planes[data.ICAO].position = data.position;
-						inputs[i].planes[data.ICAO].ts = new Date().getTime();
-						inputs[i].planes[data.ICAO].sig = packet.sig;
-					}
-				}
+				var data = JSON.stringify({ agent: inputs[i].id, buffer: Array.from(new Uint16Array(packet.buffer)), sig: packet.sig, mlat: packet.mlat, type: packet.type });
+				redisclient.rpush('adsb', data);
+				redisclient.publish('adsb', data);
 			}
 		});
-	})(i);
-}
+	} else if (type == 'output') {
+		var i = process.env.output_id;
+		console.log('Worker %d running for output %d (%s)', cluster.worker.id, i, outputs[i].id);
 
-for (var i = 0; i < outputs.length; ++i) {
-	outputs[i].handler = new output(outputs[i]);
-	outputs[i].handler.on('log', console.log);
-}
+		outputs[i].handler = new output(outputs[i]);
+		outputs[i].handler.on('log', console.log);
 
-setInterval(function () {
-	var planes = {};
+		redisclient.subscribe('adsb');
+		redisclient.on('message', function (chan, result) {
+			try {
+				var packet = JSON.parse(result);
 
-	for (var i = 0; i < inputs.length; ++i) {
-		for (var icao in inputs[i].planes) {
-			var plane = inputs[i].planes[icao];
 
-			if (plane.ts && plane.ts + 15000 < new Date().getTime()) {
-				delete inputs[i].planes[icao];
-				continue;
+				packet.buffer = new Buffer(packet.buffer);
+				outputs[i].handler.write(packet);
+			} catch (e) {
+				console.log("Parse error: ", e);
 			}
-
-			if (plane.ICAO === undefined) {
-				break;
-			}
-
-			if (planes[plane.ICAO] === undefined) {
-				planes[plane.ICAO] = {
-					users: [],
-					msgs: 0
-				};
-			}
-
-			planes[plane.ICAO].msgs += plane.msgs;
-
-			planes[plane.ICAO].users.push(inputs[i].id);
-
-			if (planes[plane.ICAO].ts === undefined || plane.ts > planes[plane.ICAO].ts) {
-				planes[plane.ICAO].ts = plane.ts;
-				if (plane.name) {
-					planes[plane.ICAO].name = plane.name;
-				}
-				if (plane.position) {
-					planes[plane.ICAO].position = plane.position;
-				}
-				if (plane.sig) {
-					planes[plane.ICAO].sig = plane.sig;
-				}
-			}
-		}
+		});
+	} else {
+		console.log("Unknown worker spawned: ", process.env);
 	}
-	io.emit('planes', planes);
-	//process.stdout.write("\033[H\033[2J");
-	//console.log(planes);
-}, 1000);
+}

@@ -27,13 +27,13 @@ function output(settings) {
 	self.settings = settings;
 
 	self.id = self.id || '';
-	settings.host = settings.host || '0.0.0.0';
+	settings.host = settings.host !== undefined ? settings.host : '0.0.0.0';
 	self.connections = [];
 
 	setImmediate(function () {
 		if (settings.type == 'server') {
 			self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - Listening on ' + settings.host + ':' + settings.port);
-			self.handle = new tcp.Server(settings.host || '0.0.0.0', settings.port, function (socket) {
+			self.handle = new tcp.Server(settings.host, settings.port, function (socket) {
 
 				self.handleConnection(socket, self.handle);
 
@@ -67,7 +67,9 @@ output.prototype.write = function (data) {
 		for (var i = 0; i < self.connections.length; ++i) {
 			try {
 				var packet = self.connections[i].transport.writeADSB(data);
-				self.connections[i].write(packet);
+				if (self.connections[i].writable) {
+					self.connections[i].write(packet);
+				}
 			} catch (e) {
 				self.emit('log', 'Output' + self.settings.type + ' ' + self.settings.id + ' - Socket error: ' + e);
 			}

@@ -27,6 +27,8 @@ function input(settings) {
 	self.buffers = [];
 	self.settings = settings;
 
+	settings.host = settings.host !== undefined ? settings.host : '0.0.0.0';
+
 	setImmediate(function () {
 		if (settings.type == 'server') {
 			self.emit('log', 'Input' + self.settings.type + ' ' + self.settings.id + ' - Listening on ' + settings.host + ':' + settings.port);
